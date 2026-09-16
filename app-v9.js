@@ -43,7 +43,7 @@ function jsonpPull_(endpoint,key){
       u.searchParams.set("_",String(Date.now()));
       script.src=u.toString();
       script.onerror=()=>{cleanup();reject(new Error("Apps Scriptへ接続できません"))};
-      timer=setTimeout(()=>{cleanup();reject(new Error("同期がタイムアウトしました"))},15000);
+      timer=setTimeout(()=>{cleanup();reject(new Error("同期がタイムアウトしました"))},60000);
       document.head.appendChild(script);
     }catch(err){cleanup();reject(err)}
   });
@@ -109,6 +109,8 @@ async function pullFromSheets(opts={}){
       lastStudyDate:data.settings?.lastStudyDate||"",
       tasks:(data.tasks||[]).map(sheetTaskToLocal_),
       history:(data.history||[]).map(sheetHistoryToLocal_),
+      weaknesses:Array.isArray(data.weaknesses)?data.weaknesses:[],
+      attentionUnits:Array.isArray(data.attentionUnits)?data.attentionUnits:[],
       dailyPlan:null,
       celebratedDates:keepCelebrated
     });
@@ -225,6 +227,8 @@ function migrateState(input){
   st.lastStudyDate=st.lastStudyDate||"";
   st.history=Array.isArray(st.history)?st.history:[];
   st.tasks=Array.isArray(st.tasks)?st.tasks:[];
+  st.weaknesses=Array.isArray(st.weaknesses)?st.weaknesses:[];
+  st.attentionUnits=Array.isArray(st.attentionUnits)?st.attentionUnits:[];
   if(!st.dailyPlan||typeof st.dailyPlan!=="object")st.dailyPlan=null;
   if(!Array.isArray(st.celebratedDates))st.celebratedDates=[];
   st.tasks=st.tasks.map(t=>{
@@ -447,9 +451,30 @@ function renderParent(){
   const redo=state.tasks.filter(t=>!t.mastered&&["直し待ち","理解不十分","翌日確認"].includes(t.status)).length;
   const aPending=state.tasks.filter(t=>t.level==="A"&&!t.mastered).length,mastered=state.tasks.filter(t=>t.mastered).length;
   document.querySelector("#metricRedo").textContent=redo;document.querySelector("#metricA").textContent=aPending;document.querySelector("#metricToday").textContent=plannedTasksForToday().length;document.querySelector("#metricOverdue").textContent=overdueCount();document.querySelector("#metricMastered").textContent=mastered;
-  const groups={};state.tasks.filter(t=>!t.mastered).forEach(t=>{const key=`${t.subject}・${t.unit}`;if(!groups[key])groups[key]={count:0,score:0};groups[key].count++;groups[key].score+=effectivePriority(t)});
-  const weak=Object.entries(groups).map(([name,v])=>({name,score:Math.round(v.score/v.count),count:v.count})).sort((a,b)=>b.score-a.score).slice(0,5);
-  document.querySelector("#weakUnits").innerHTML=weak.length?weak.map(w=>`<div class="weak-row"><div><strong>${escapeHTML(w.name)}</strong><div class="mini-copy">未完了 ${w.count}問</div></div><div class="weak-score">${w.score}</div></div>`).join(""):`<div class="empty">要注意単元はありません。</div>`;
+
+  const integrated=Array.isArray(state.attentionUnits)?state.attentionUnits.filter(x=>Number(x.score)>0).slice(0,5):[];
+  if(integrated.length){
+    document.querySelector("#weakUnits").innerHTML=integrated.map(w=>{
+      const subject=escapeHTML(w.subject||"");
+      const label=escapeHTML(w.label||w.subcategory||w.category||"未分類");
+      const score=Math.round(Number(w.score||0)*10)/10;
+      const past=Math.round(Number(w.pastScore||0)*10)/10;
+      const current=Math.round(Number(w.currentAdjustment||0)*10)/10;
+      const currentText=current>0?`+${current}`:`${current}`;
+      const taskCount=Number(w.currentTaskCount||0);
+      const parts=[];
+      if(past>0)parts.push(`公開テスト ${past}`);
+      if(current!==0)parts.push(`現在 ${currentText}`);
+      if(taskCount>0)parts.push(`学習中 ${taskCount}問`);
+      const reasons=(Array.isArray(w.reasons)?w.reasons:[]).slice(0,2).map(escapeHTML).join("・");
+      return `<div class="weak-row"><div><strong>${subject}・${label}</strong><div class="mini-copy">${parts.join(" ／ ")||"現在の学習状況から算出"}</div>${reasons?`<div class="mini-copy weak-reason">${reasons}</div>`:""}</div><div class="weak-score">${score}</div></div>`;
+    }).join("");
+  }else{
+    // Offline / old API fallback: preserve the previous behavior.
+    const groups={};state.tasks.filter(t=>!t.mastered).forEach(t=>{const key=`${t.subject}・${t.unit}`;if(!groups[key])groups[key]={count:0,score:0};groups[key].count++;groups[key].score+=effectivePriority(t)});
+    const weak=Object.entries(groups).map(([name,v])=>({name,score:Math.round(v.score/v.count),count:v.count})).sort((a,b)=>b.score-a.score).slice(0,5);
+    document.querySelector("#weakUnits").innerHTML=weak.length?weak.map(w=>`<div class="weak-row"><div><strong>${escapeHTML(w.name)}</strong><div class="mini-copy">未完了 ${w.count}問</div></div><div class="weak-score">${w.score}</div></div>`).join(""):`<div class="empty">要注意単元はありません。</div>`;
+  }
   renderSyncUI();
 }
 function bindTaskButtons(){document.querySelectorAll("[data-task]").forEach(btn=>{btn.onclick=()=>{activeTaskId=Number(btn.dataset.task);const t=state.tasks.find(x=>x.id===activeTaskId);document.querySelector("#resultTaskTitle").textContent=`${t.subject} ${t.unit} ${t.number}`;document.querySelector("#resultDialog").showModal()}})}
