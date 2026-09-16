@@ -260,7 +260,8 @@ function loadState(){
 }
 function saveState(){localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}
 
-let state=loadState(),activeTaskId=null,filterSubject="すべて";
+let state=loadState(),activeTaskId=null,questFilter="today";
+const PUBLIC_TEST_BOOK="公開学力テスト";
 function getLevel(){return Math.max(1,Math.floor(state.xp/100)+1)}
 function isDue(t,iso=todayKey()){return !t.mastered&&parseLocalDate(t.nextReviewDate)&&t.nextReviewDate<=iso}
 function todaysTasks(){return state.tasks.filter(t=>isDue(t))}
@@ -321,13 +322,29 @@ function dueInfo(t){
   if(t.nextReviewDate===tomorrow)return{label:`明日 ${formatJPDate(t.nextReviewDate)}`,cls:"tomorrow"};
   return{label:`次回 ${formatJPDate(t.nextReviewDate)}`,cls:""};
 }
+function isPublicTestTask(t){return String(t&&t.book||"")===PUBLIC_TEST_BOOK}
 function taskCard(t,compact=false){
   const doneToday=state.history.some(h=>h.taskId===t.id&&h.date===todayKey());
   const due=dueInfo(t);
-  const meta=[t.book,t.round,t.status].filter(Boolean).map(escapeHTML).join(" ・ ");
-  return `<div class="task card"><div class="task-main"><div class="task-topline"><span class="subject ${t.subject}">${t.subject}</span><span class="level">${t.level}レベル</span><span class="priority">優先 ${effectivePriority(t)}</span><span class="due-badge ${due.cls}">${due.label}</span></div><p class="task-title">${escapeHTML(t.unit)} ${escapeHTML(t.number)}</p><div class="task-meta">${meta}</div></div>${doneToday?`<span class="done-tag">今日できた</span>`:`<button class="start-btn" data-task="${t.id}">${compact?"やる":"結果"}</button>`}</div>`;
+  const isPublic=isPublicTestTask(t);
+  const publicBadges=isPublic?`<span class="source-badge public">公開</span>${t.round?`<span class="round-badge">${escapeHTML(t.round)}</span>`:""}`:"";
+  const meta=(isPublic?[t.status]:[t.book,t.round,t.status]).filter(Boolean).map(escapeHTML).join(" ・ ");
+  return `<div class="task card${isPublic?" public-task":""}"><div class="task-main"><div class="task-topline"><span class="subject ${t.subject}">${t.subject}</span>${publicBadges}<span class="level">${t.level}レベル</span><span class="priority">優先 ${effectivePriority(t)}</span><span class="due-badge ${due.cls}">${due.label}</span></div><p class="task-title">${escapeHTML(t.unit)} ${escapeHTML(t.number)}</p><div class="task-meta">${meta}</div></div>${doneToday?`<span class="done-tag">今日できた</span>`:`<button class="start-btn" data-task="${t.id}">${compact?"やる":"結果"}</button>`}</div>`;
 }
 function todayCompletedTaskIds(){return new Set(state.history.filter(h=>h.date===todayKey()).map(h=>h.taskId))}
+function questFilteredTasks(){
+  if(questFilter==="today")return plannedTasksForToday();
+  let list=state.tasks.slice();
+  if(questFilter==="public")list=list.filter(isPublicTestTask);
+  else if(["算数","国語","理科","社会"].includes(questFilter))list=list.filter(t=>t.subject===questFilter);
+  return list.sort((a,b)=>(a.mastered-b.mastered)||String(a.nextReviewDate||"9999").localeCompare(String(b.nextReviewDate||"9999"))||effectivePriority(b)-effectivePriority(a));
+}
+function questFilterLabel(count){
+  if(questFilter==="today")return `今日やる ${count}問`;
+  if(questFilter==="public")return `公開学力テストの復習 ${count}問`;
+  if(["算数","国語","理科","社会"].includes(questFilter))return `${questFilter} ${count}問`;
+  return `全 ${count}問`;
+}
 function render(){
   const dueAll=todaysTasks();
   const profile=getLoadProfile();
@@ -362,8 +379,9 @@ function render(){
   document.querySelector("#loadNote").textContent=profile.note;
   const mascot=document.querySelector("#dailyLoadMascot");if(mascot)mascot.src=profile.mascot;
   document.querySelector("#topTasks").innerHTML=planned.map(t=>taskCard(t,true)).join("")||`<div class="empty card">今日のおすすめ復習はありません。</div>`;
-  const filtered=state.tasks.filter(t=>filterSubject==="すべて"||t.subject===filterSubject).sort((a,b)=>(a.mastered-b.mastered)||String(a.nextReviewDate||"9999").localeCompare(String(b.nextReviewDate||"9999"))||effectivePriority(b)-effectivePriority(a));
-  document.querySelector("#allTasks").innerHTML=filtered.map(t=>taskCard(t,false)).join("")||`<div class="empty card">まだ問題がありません。</div>`;
+  const filtered=questFilteredTasks();
+  const summary=document.querySelector("#questFilterSummary");if(summary)summary.textContent=questFilterLabel(filtered.length);
+  document.querySelector("#allTasks").innerHTML=filtered.map(t=>taskCard(t,false)).join("")||`<div class="empty card">この条件の問題はありません。</div>`;
   renderGrowth();renderParent();bindTaskButtons();
 }
 
@@ -481,7 +499,12 @@ function renderParent(){
 function bindTaskButtons(){document.querySelectorAll("[data-task]").forEach(btn=>{btn.onclick=()=>{activeTaskId=Number(btn.dataset.task);const t=state.tasks.find(x=>x.id===activeTaskId);const round=t.round?` ${t.round}`:"";document.querySelector("#resultTaskTitle").textContent=`${t.subject}${round} ${t.unit} ${t.number}`;document.querySelector("#resultDialog").showModal()}})}
 
 document.querySelectorAll(".nav-btn").forEach(btn=>btn.addEventListener("click",()=>{document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));btn.classList.add("active");document.querySelector(`#${btn.dataset.view}`).classList.add("active");window.scrollTo({top:0,behavior:"smooth"})}));
-document.querySelectorAll("#subjectFilters .chip").forEach(btn=>btn.addEventListener("click",()=>{document.querySelectorAll("#subjectFilters .chip").forEach(b=>b.classList.remove("active"));btn.classList.add("active");filterSubject=btn.dataset.subject;render()}));
+document.querySelectorAll("#questFilters .chip").forEach(btn=>btn.addEventListener("click",()=>{
+  document.querySelectorAll("#questFilters .chip").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  questFilter=btn.dataset.filter;
+  render();
+}));
 document.querySelectorAll("[data-result]").forEach(btn=>btn.addEventListener("click",e=>{e.preventDefault();applyResult(btn.dataset.result);document.querySelector("#resultDialog").close();maybeCelebrateDailyPlan()}));
 
 function nextReviewForSuccess(t){
