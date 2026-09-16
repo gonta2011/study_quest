@@ -324,7 +324,8 @@ function dueInfo(t){
 function taskCard(t,compact=false){
   const doneToday=state.history.some(h=>h.taskId===t.id&&h.date===todayKey());
   const due=dueInfo(t);
-  return `<div class="task card"><div class="task-main"><div class="task-topline"><span class="subject ${t.subject}">${t.subject}</span><span class="level">${t.level}レベル</span><span class="priority">優先 ${effectivePriority(t)}</span><span class="due-badge ${due.cls}">${due.label}</span></div><p class="task-title">${escapeHTML(t.unit)} ${escapeHTML(t.number)}</p><div class="task-meta">${escapeHTML(t.book||"")} ・ ${escapeHTML(t.status)}</div></div>${doneToday?`<span class="done-tag">今日できた</span>`:`<button class="start-btn" data-task="${t.id}">${compact?"やる":"結果"}</button>`}</div>`;
+  const meta=[t.book,t.round,t.status].filter(Boolean).map(escapeHTML).join(" ・ ");
+  return `<div class="task card"><div class="task-main"><div class="task-topline"><span class="subject ${t.subject}">${t.subject}</span><span class="level">${t.level}レベル</span><span class="priority">優先 ${effectivePriority(t)}</span><span class="due-badge ${due.cls}">${due.label}</span></div><p class="task-title">${escapeHTML(t.unit)} ${escapeHTML(t.number)}</p><div class="task-meta">${meta}</div></div>${doneToday?`<span class="done-tag">今日できた</span>`:`<button class="start-btn" data-task="${t.id}">${compact?"やる":"結果"}</button>`}</div>`;
 }
 function todayCompletedTaskIds(){return new Set(state.history.filter(h=>h.date===todayKey()).map(h=>h.taskId))}
 function render(){
@@ -477,7 +478,7 @@ function renderParent(){
   }
   renderSyncUI();
 }
-function bindTaskButtons(){document.querySelectorAll("[data-task]").forEach(btn=>{btn.onclick=()=>{activeTaskId=Number(btn.dataset.task);const t=state.tasks.find(x=>x.id===activeTaskId);document.querySelector("#resultTaskTitle").textContent=`${t.subject} ${t.unit} ${t.number}`;document.querySelector("#resultDialog").showModal()}})}
+function bindTaskButtons(){document.querySelectorAll("[data-task]").forEach(btn=>{btn.onclick=()=>{activeTaskId=Number(btn.dataset.task);const t=state.tasks.find(x=>x.id===activeTaskId);const round=t.round?` ${t.round}`:"";document.querySelector("#resultTaskTitle").textContent=`${t.subject}${round} ${t.unit} ${t.number}`;document.querySelector("#resultDialog").showModal()}})}
 
 document.querySelectorAll(".nav-btn").forEach(btn=>btn.addEventListener("click",()=>{document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));btn.classList.add("active");document.querySelector(`#${btn.dataset.view}`).classList.add("active");window.scrollTo({top:0,behavior:"smooth"})}));
 document.querySelectorAll("#subjectFilters .chip").forEach(btn=>btn.addEventListener("click",()=>{document.querySelectorAll("#subjectFilters .chip").forEach(b=>b.classList.remove("active"));btn.classList.add("active");filterSubject=btn.dataset.subject;render()}));
