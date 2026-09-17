@@ -266,10 +266,32 @@ function getLevel(){return Math.max(1,Math.floor(state.xp/100)+1)}
 function isDue(t,iso=todayKey()){return !t.mastered&&parseLocalDate(t.nextReviewDate)&&t.nextReviewDate<=iso}
 function todaysTasks(){return state.tasks.filter(t=>isDue(t))}
 function scheduledCount(iso){return state.tasks.filter(t=>!t.mastered&&t.nextReviewDate===iso).length}
-function overdueCount(){const today=todayKey();return state.tasks.filter(t=>!t.mastered&&parseLocalDate(t.nextReviewDate)&&t.nextReviewDate<today).length}
+function isPublicTestTask(t){return String(t&&t.book||"")===PUBLIC_TEST_BOOK}
+function hasActualStudyEvidence(t){
+  return !!(
+    (t&&t.lastStudyDate)||
+    String(t&&t.lastResult||"").trim()||
+    state.history.some(h=>Number(h.taskId)===Number(t&&t.id))
+  );
+}
+function isUntouchedPublicTask(t){return isPublicTestTask(t)&&!hasActualStudyEvidence(t)}
+function overdueCount(){
+  const today=todayKey();
+  return state.tasks.filter(t=>
+    !t.mastered&&
+    !isUntouchedPublicTask(t)&&
+    parseLocalDate(t.nextReviewDate)&&
+    t.nextReviewDate<today
+  ).length;
+}
 function weekCount(){const today=todayKey(),end=addDaysISO(today,7);return state.tasks.filter(t=>!t.mastered&&parseLocalDate(t.nextReviewDate)&&t.nextReviewDate>today&&t.nextReviewDate<=end).length}
-function overdueDays(t){return t.mastered||!t.nextReviewDate?0:Math.max(0,diffDays(t.nextReviewDate,todayKey()))}
-function effectivePriority(t){return Number(t.priority||0)+Math.min(20,overdueDays(t)*2)}
+function overdueDays(t){
+  if(t.mastered||!t.nextReviewDate||isUntouchedPublicTask(t))return 0;
+  return Math.max(0,diffDays(t.nextReviewDate,todayKey()));
+}
+function effectivePriority(t){
+  return Math.min(100,Math.max(0,Number(t.priority||0)+Math.min(20,overdueDays(t)*2)));
+}
 
 function sundayOrdinal(date){return Math.floor((date.getDate()-1)/7)+1}
 function getLoadProfile(date=parseLocalDate(todayKey())||new Date()){
@@ -315,14 +337,23 @@ function plannedTasksForToday(){
 function escapeHTML(s=""){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]))}
 function dueInfo(t){
   if(t.mastered)return{label:"定着",cls:"mastered"};
-  if(!t.nextReviewDate)return{label:"日付未設定",cls:""};
+  if(!t.nextReviewDate)return{label:isUntouchedPublicTask(t)?"未着手":"日付未設定",cls:isUntouchedPublicTask(t)?"initial":""};
   const today=todayKey(),tomorrow=addDaysISO(today,1);
+
+  // 公開テストから自動登録された未実施問題は、初回学習までは
+  // 「復習期限超過」と扱わず、初回予定日として表示する。
+  if(isUntouchedPublicTask(t)){
+    if(t.nextReviewDate<today)return{label:`初回予定 ${formatJPDate(t.nextReviewDate)}`,cls:"initial"};
+    if(t.nextReviewDate===today)return{label:`今日・初回 ${formatJPDate(t.nextReviewDate)}`,cls:"today"};
+    if(t.nextReviewDate===tomorrow)return{label:`明日・初回 ${formatJPDate(t.nextReviewDate)}`,cls:"tomorrow"};
+    return{label:`初回 ${formatJPDate(t.nextReviewDate)}`,cls:"initial"};
+  }
+
   if(t.nextReviewDate<today)return{label:`${formatJPDate(t.nextReviewDate)}・${overdueDays(t)}日超過`,cls:"overdue"};
   if(t.nextReviewDate===today)return{label:`今日 ${formatJPDate(t.nextReviewDate)}`,cls:"today"};
   if(t.nextReviewDate===tomorrow)return{label:`明日 ${formatJPDate(t.nextReviewDate)}`,cls:"tomorrow"};
   return{label:`次回 ${formatJPDate(t.nextReviewDate)}`,cls:""};
 }
-function isPublicTestTask(t){return String(t&&t.book||"")===PUBLIC_TEST_BOOK}
 function taskCard(t,compact=false){
   const doneToday=state.history.some(h=>h.taskId===t.id&&h.date===todayKey());
   const due=dueInfo(t);

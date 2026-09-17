@@ -1,5 +1,5 @@
-const CACHE="study-quest-v15-quest-filter";
-const ASSETS=["./index.html", "./styles-v9.css?v=14", "./app-v9.js?v=14", "./manifest.webmanifest?v=5", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/studyquest-icon-v2-180.png", "./assets/study-buddies-room.png", "./assets/bunny-sheet.png", "./assets/panda-sheet.png", "./assets/bunny-calm.png", "./assets/bunny-happy.png", "./assets/bunny-cheer.png", "./assets/bunny-worried.png", "./assets/panda-calm.png", "./assets/panda-happy.png", "./assets/panda-cheer.png", "./assets/panda-worried.png"];
+const CACHE="study-quest-v16-public-initial-due";
+const ASSETS=["./index.html", "./styles-v9.css?v=15", "./app-v9.js?v=15", "./manifest.webmanifest?v=5", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/studyquest-icon-v2-180.png", "./assets/study-buddies-room.png", "./assets/bunny-sheet.png", "./assets/panda-sheet.png", "./assets/bunny-calm.png", "./assets/bunny-happy.png", "./assets/bunny-cheer.png", "./assets/bunny-worried.png", "./assets/panda-calm.png", "./assets/panda-happy.png", "./assets/panda-cheer.png", "./assets/panda-worried.png"];
 
 self.addEventListener("install",e=>{
   self.skipWaiting();
