@@ -60,7 +60,22 @@ async function postToSheets_(payload){
   });
   return true;
 }
+function normalizeStudyType_(value,t={}){
+  const v=String(value||"").trim();
+  if(["毎日","宿題","復テ直し","公開・模試直し"].includes(v))return v;
+  if(v==="復習テスト直し"||v==="復テ")return "復テ直し";
+  if(v==="公開"||v==="模試"||v==="公開・模試")return "公開・模試直し";
+  return String(t.book||"")==="公開学力テスト"?"公開・模試直し":"宿題";
+}
+function normalizeWorkload_(value,fallback=1){
+  const n=Number(value);
+  if(Number.isFinite(n)&&n>0)return Math.max(1,Math.min(3,Math.round(n)));
+  const f=Number(fallback);
+  return Number.isFinite(f)&&f>0?Math.max(1,Math.min(3,Math.round(f))):1;
+}
 function sheetTaskToLocal_(t){
+  const studyType=t.studyType??t.learningType??t.taskType??t["学習種別"];
+  const workload=t.workload??t.workloadPoints??t.loadPoints??t["負荷ポイント"];
   return{
     id:Number(t.id),
     subject:t.subject||"",
@@ -74,6 +89,8 @@ function sheetTaskToLocal_(t){
     reviewStage:Number.isFinite(Number(t.reviewStage))?Number(t.reviewStage):-1,
     status:t.status||"未着手",
     priority:Number.isFinite(Number(t.priority))?Number(t.priority):(t.level==="A"?70:t.level==="B"?50:30),
+    studyType:normalizeStudyType_(studyType,t),
+    workload:(workload===null||workload===undefined||String(workload).trim()==="")?null:normalizeWorkload_(workload,1),
     miss:t.miss||"",
     mastered:Boolean(t.mastered),
     lastResult:t.lastResult||null,
@@ -111,6 +128,7 @@ async function pullFromSheets(opts={}){
       history:(data.history||[]).map(sheetHistoryToLocal_),
       weaknesses:Array.isArray(data.weaknesses)?data.weaknesses:[],
       attentionUnits:Array.isArray(data.attentionUnits)?data.attentionUnits:[],
+      appSettings:(data.settings&&typeof data.settings==="object")?data.settings:{},
       dailyPlan:null,
       celebratedDates:keepCelebrated
     });
@@ -229,6 +247,7 @@ function migrateState(input){
   st.tasks=Array.isArray(st.tasks)?st.tasks:[];
   st.weaknesses=Array.isArray(st.weaknesses)?st.weaknesses:[];
   st.attentionUnits=Array.isArray(st.attentionUnits)?st.attentionUnits:[];
+  st.appSettings=(st.appSettings&&typeof st.appSettings==="object")?st.appSettings:{};
   if(!st.dailyPlan||typeof st.dailyPlan!=="object")st.dailyPlan=null;
   if(!Array.isArray(st.celebratedDates))st.celebratedDates=[];
   st.tasks=st.tasks.map(t=>{
@@ -244,6 +263,14 @@ function migrateState(input){
     if(!x.lastStudyDate){
       const hist=st.history.filter(h=>h.taskId===x.id&&parseLocalDate(h.date)).sort((a,b)=>String(b.date).localeCompare(String(a.date)))[0];
       x.lastStudyDate=hist?hist.date:null;
+    }
+    x.studyType=normalizeStudyType_(x.studyType,x);
+    x.workload=normalizeWorkload_(x.workload,settingNumber_("default_workload",1,st.appSettings));
+    if(x.studyType==="毎日"){
+      x.mastered=false;
+      if(!parseLocalDate(x.nextReviewDate))x.nextReviewDate=todayKey();
+      if(x.status==="定着")x.status="翌日確認";
+      if(x.reviewStage>=4)x.reviewStage=0;
     }
     delete x.nextReview;
     return x;
@@ -262,6 +289,37 @@ function saveState(){localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}
 
 let state=loadState(),activeTaskId=null,questFilter="today";
 const PUBLIC_TEST_BOOK="公開学力テスト";
+const STUDY_TYPE_ORDER=["毎日","宿題","復テ直し","公開・模試直し"];
+const DEFAULT_APP_SETTINGS={
+  study_points_mon:8,study_points_tue:3,study_points_wed:12,study_points_thu:3,
+  study_points_fri:2,study_points_sat:9,study_points_sun:6,study_points_second_sun:2,
+  default_workload:1,auto_rebalance_public:true,
+  priority_daily_base:100,priority_homework_base:90,priority_reviewtest_base:80,priority_mock_base:70
+};
+function settingRaw_(key,settings=null){
+  const src=settings&&typeof settings==="object"?settings:(state&&state.appSettings)||{};
+  return Object.prototype.hasOwnProperty.call(src,key)?src[key]:DEFAULT_APP_SETTINGS[key];
+}
+function settingNumber_(key,fallback,settings=null){
+  const n=Number(settingRaw_(key,settings));
+  return Number.isFinite(n)?n:fallback;
+}
+function settingBool_(key,fallback=true){
+  const v=settingRaw_(key);
+  if(typeof v==="boolean")return v;
+  if(typeof v==="number")return v!==0;
+  if(typeof v==="string"){
+    const x=v.trim().toLowerCase();
+    if(["true","1","yes","on","はい"].includes(x))return true;
+    if(["false","0","no","off","いいえ"].includes(x))return false;
+  }
+  return fallback;
+}
+function studyTypeBase_(t){
+  const key={"毎日":"priority_daily_base","宿題":"priority_homework_base","復テ直し":"priority_reviewtest_base","公開・模試直し":"priority_mock_base"}[normalizeStudyType_(t.studyType,t)];
+  return settingNumber_(key,0);
+}
+function workloadPoints_(t){return normalizeWorkload_(t&&t.workload,settingNumber_("default_workload",1))}
 function getLevel(){return Math.max(1,Math.floor(state.xp/100)+1)}
 function isDue(t,iso=todayKey()){return !t.mastered&&parseLocalDate(t.nextReviewDate)&&t.nextReviewDate<=iso}
 function todaysTasks(){return state.tasks.filter(t=>isDue(t))}
@@ -295,37 +353,69 @@ function effectivePriority(t){
 
 function sundayOrdinal(date){return Math.floor((date.getDate()-1)/7)+1}
 function getLoadProfile(date=parseLocalDate(todayKey())||new Date()){
-  const dow=date.getDay();
-  if(dow===1)return{key:"mon",day:"月曜日",label:"ふつう",schedule:"ピアノ 16:40–17:30",maxTasks:5,minutes:30,note:"通塾がないので、Aレベルの直しと再確認をバランスよく進める日です。",mascot:"assets/bunny-cheer.png"};
-  if(dow===2)return{key:"tue",day:"火曜日",label:"かなり軽め",schedule:"国語 17:00–18:50／算数2nd 19:10–21:00",maxTasks:2,minutes:15,note:"授業が長い日。期限到来の中から最優先だけに絞ります。",mascot:"assets/panda-calm.png"};
-  if(dow===3)return{key:"wed",day:"水曜日",label:"しっかり復習",schedule:"通塾なし",maxTasks:6,minutes:40,note:"前日の直しや、3日後・7日後確認を進める中心日です。",mascot:"assets/bunny-happy.png"};
-  if(dow===4)return{key:"thu",day:"木曜日",label:"かなり軽め",schedule:"理科 17:00–18:50／社会 19:10–21:00",maxTasks:2,minutes:15,note:"授業が長いので、Aレベルの未直しを優先して少量にします。",mascot:"assets/panda-calm.png"};
-  if(dow===5)return{key:"fri",day:"金曜日",label:"最小限",schedule:"最レ算数 17:30–21:10",maxTasks:1,minutes:10,note:"負荷が最も高い日。復習は最優先の1問だけで十分です。",mascot:"assets/panda-worried.png"};
-  if(dow===6)return{key:"sat",day:"土曜日",label:"軽め",schedule:"算数1st",maxTasks:3,minutes:20,note:"授業日に合わせ、未直しと定着確認を少量だけ進めます。",mascot:"assets/bunny-calm.png"};
-  const nth=sundayOrdinal(date);
-  if(nth===2)return{key:"sun-public",day:"日曜日",label:"最小限",schedule:"公開 13:35–16:55／バド 17:30–18:30",maxTasks:1,minutes:10,note:"公開の日はテストを最優先。復習は最重要の1問だけにします。",mascot:"assets/panda-worried.png"};
-  if(nth===1||nth===3)return{key:"sun-saile",day:"日曜日",label:"かなり軽め",schedule:"最レ国語 10:00–12:00／バド 17:30–18:30",maxTasks:2,minutes:15,note:"最レ国語のある日は、期限到来の上位2問までに絞ります。",mascot:"assets/bunny-calm.png"};
-  return{key:"sun-light",day:"日曜日",label:"軽め",schedule:"バド 17:30–18:30",maxTasks:4,minutes:25,note:"通塾の少ない日曜なので、積み残しを少し回収できます。",mascot:"assets/bunny-happy.png"};
+  const dow=date.getDay(),nth=sundayOrdinal(date);
+  const cfg={
+    1:{key:"mon",day:"月曜日",label:"ふつう",schedule:"ピアノ 16:40–17:30",pointsKey:"study_points_mon",minutes:30,note:"毎日タスクと宿題を優先し、余力で復テ・公開模試の直しを進めます。",mascot:"assets/bunny-cheer.png"},
+    2:{key:"tue",day:"火曜日",label:"かなり軽め",schedule:"国語 17:00–18:50／算数2nd 19:10–21:00",pointsKey:"study_points_tue",minutes:15,note:"授業が長い日。毎日タスクと宿題を中心に、ポイント上限までにします。",mascot:"assets/panda-calm.png"},
+    3:{key:"wed",day:"水曜日",label:"しっかり回収",schedule:"通塾なし",pointsKey:"study_points_wed",minutes:45,note:"回収日。毎日→宿題→復テ直し→公開・模試直しの順に進めます。",mascot:"assets/bunny-happy.png"},
+    4:{key:"thu",day:"木曜日",label:"かなり軽め",schedule:"理科 17:00–18:50／社会 19:10–21:00",pointsKey:"study_points_thu",minutes:15,note:"授業が長いので、優先順位を守ってポイント上限までにします。",mascot:"assets/panda-calm.png"},
+    5:{key:"fri",day:"金曜日",label:"最小限",schedule:"最レ算数 17:30–21:10",pointsKey:"study_points_fri",minutes:10,note:"負荷が最も高い日。毎日タスクなど最優先分だけに絞ります。",mascot:"assets/panda-worried.png"},
+    6:{key:"sat",day:"土曜日",label:"しっかり回収",schedule:"算数1st",pointsKey:"study_points_sat",minutes:35,note:"回収日。宿題と復テ直しを中心に、余力で公開・模試直しを進めます。",mascot:"assets/bunny-happy.png"}
+  };
+  if(dow!==0){
+    const p=cfg[dow];
+    return{...p,maxPoints:Math.max(1,settingNumber_(p.pointsKey,DEFAULT_APP_SETTINGS[p.pointsKey]))};
+  }
+  if(nth===2)return{key:"sun-public",day:"第2日曜日",label:"最小限",schedule:"公開 13:35–16:55／バド 17:30–18:30",maxPoints:Math.max(1,settingNumber_("study_points_second_sun",2)),minutes:10,note:"公開の日は負荷を抑え、毎日タスクなど最優先分だけにします。",mascot:"assets/panda-worried.png"};
+  const saile=nth===1||nth===3;
+  return{key:saile?"sun-saile":"sun-light",day:"日曜日",label:saile?"軽め":"ふつう",schedule:saile?"最レ国語 10:00–12:00／バド 17:30–18:30":"バド 17:30–18:30",maxPoints:Math.max(1,settingNumber_("study_points_sun",6)),minutes:saile?25:30,note:"毎日→宿題→復テ直し→公開・模試直しの順に、ポイント上限まで進めます。",mascot:saile?"assets/bunny-calm.png":"assets/bunny-happy.png"};
 }
+function comparePlanCandidates_(a,b){
+  const baseDiff=studyTypeBase_(b)-studyTypeBase_(a);
+  if(baseDiff!==0)return baseDiff;
+  const typeDiff=STUDY_TYPE_ORDER.indexOf(normalizeStudyType_(a.studyType,a))-STUDY_TYPE_ORDER.indexOf(normalizeStudyType_(b.studyType,b));
+  if(typeDiff!==0)return typeDiff;
+  return effectivePriority(b)-effectivePriority(a)||String(a.nextReviewDate||"").localeCompare(String(b.nextReviewDate||""))||Number(a.id)-Number(b.id);
+}
+function planPoints_(tasks){return tasks.reduce((sum,t)=>sum+workloadPoints_(t),0)}
 function ensureDailyPlan(){
   const today=todayKey(),profile=getLoadProfile();
   let changed=false;
-  if(!state.dailyPlan||state.dailyPlan.date!==today){
-    state.dailyPlan={date:today,profileKey:profile.key,capacity:profile.maxTasks,minutes:profile.minutes,taskIds:[]};
+  const model="points-v1";
+  if(!state.dailyPlan||state.dailyPlan.date!==today||state.dailyPlan.model!==model){
+    // 同期や再読み込みでプランが作り直されても、今日すでに実施した分は
+    // 今日のポイントとして残し、追加クエストが勝手に増えないようにする。
+    const doneIds=new Set(state.history.filter(h=>h.date===today).map(h=>Number(h.taskId)));
+    const doneToday=state.tasks.filter(t=>doneIds.has(Number(t.id))).sort(comparePlanCandidates_).map(t=>t.id);
+    state.dailyPlan={date:today,model,profileKey:profile.key,capacityPoints:profile.maxPoints,minutes:profile.minutes,taskIds:doneToday};
     changed=true;
   }
-  state.dailyPlan.capacity=profile.maxTasks;
+  state.dailyPlan.capacityPoints=profile.maxPoints;
   state.dailyPlan.minutes=profile.minutes;
   state.dailyPlan.profileKey=profile.key;
   const validIds=new Set(state.tasks.map(t=>t.id));
   const before=state.dailyPlan.taskIds.length;
   state.dailyPlan.taskIds=state.dailyPlan.taskIds.filter(id=>validIds.has(id));
   if(before!==state.dailyPlan.taskIds.length)changed=true;
+
+  const completed=todayCompletedTaskIds();
+  const existingTasks=state.dailyPlan.taskIds.map(id=>state.tasks.find(t=>t.id===id)).filter(Boolean);
+  let used=planPoints_(existingTasks);
   const existing=new Set(state.dailyPlan.taskIds);
-  const candidates=state.tasks.filter(t=>isDue(t)&&!existing.has(t.id)).sort((a,b)=>effectivePriority(b)-effectivePriority(a)||String(a.nextReviewDate).localeCompare(String(b.nextReviewDate)));
-  while(state.dailyPlan.taskIds.length<profile.maxTasks&&candidates.length){
-    state.dailyPlan.taskIds.push(candidates.shift().id);changed=true;
-  }
+  const candidates=state.tasks.filter(t=>isDue(t)&&!existing.has(t.id)&&!completed.has(t.id)).sort(comparePlanCandidates_);
+
+  // 優先順位を守りつつ、残りポイントに収まる問題を順番に採用する。
+  // auto_rebalance_public=TRUE の場合、公開・模試直しは上位3種を配置した後の余剰枠でのみ採用する。
+  const autoRebalance=settingBool_("auto_rebalance_public",true);
+  const groups=autoRebalance?[candidates.filter(t=>normalizeStudyType_(t.studyType,t)!=="公開・模試直し"),candidates.filter(t=>normalizeStudyType_(t.studyType,t)==="公開・模試直し")]:[candidates];
+  groups.forEach(group=>{
+    for(const t of group){
+      const pts=workloadPoints_(t);
+      if(used+pts>profile.maxPoints)continue;
+      state.dailyPlan.taskIds.push(t.id);existing.add(t.id);used+=pts;changed=true;
+      if(used>=profile.maxPoints)break;
+    }
+  });
   if(changed)saveState();
   return state.dailyPlan;
 }
@@ -358,9 +448,11 @@ function taskCard(t,compact=false){
   const doneToday=state.history.some(h=>h.taskId===t.id&&h.date===todayKey());
   const due=dueInfo(t);
   const isPublic=isPublicTestTask(t);
+  const type=normalizeStudyType_(t.studyType,t),pts=workloadPoints_(t);
   const publicBadges=isPublic?`<span class="source-badge public">公開</span>${t.round?`<span class="round-badge">${escapeHTML(t.round)}</span>`:""}`:"";
+  const typeBadge=`<span class="study-type-badge" data-type="${escapeHTML(type)}">${escapeHTML(type)}</span><span class="workload-badge">${pts}pt</span>`;
   const meta=(isPublic?[t.status]:[t.book,t.round,t.status]).filter(Boolean).map(escapeHTML).join(" ・ ");
-  return `<div class="task card${isPublic?" public-task":""}"><div class="task-main"><div class="task-topline"><span class="subject ${t.subject}">${t.subject}</span>${publicBadges}<span class="level">${t.level}レベル</span><span class="priority">優先 ${effectivePriority(t)}</span><span class="due-badge ${due.cls}">${due.label}</span></div><p class="task-title">${escapeHTML(t.unit)} ${escapeHTML(t.number)}</p><div class="task-meta">${meta}</div></div>${doneToday?`<span class="done-tag">今日できた</span>`:`<button class="start-btn" data-task="${t.id}">${compact?"やる":"結果"}</button>`}</div>`;
+  return `<div class="task card${isPublic?" public-task":""}"><div class="task-main"><div class="task-topline"><span class="subject ${t.subject}">${t.subject}</span>${publicBadges}${typeBadge}<span class="level">${t.level}レベル</span><span class="priority">優先 ${effectivePriority(t)}</span><span class="due-badge ${due.cls}">${due.label}</span></div><p class="task-title">${escapeHTML(t.unit)} ${escapeHTML(t.number)}</p><div class="task-meta">${meta}</div></div>${doneToday?`<span class="done-tag">今日できた</span>`:`<button class="start-btn" data-task="${t.id}">${compact?"やる":"結果"}</button>`}</div>`;
 }
 function todayCompletedTaskIds(){return new Set(state.history.filter(h=>h.date===todayKey()).map(h=>h.taskId))}
 function questFilteredTasks(){
@@ -371,7 +463,10 @@ function questFilteredTasks(){
   return list.sort((a,b)=>(a.mastered-b.mastered)||String(a.nextReviewDate||"9999").localeCompare(String(b.nextReviewDate||"9999"))||effectivePriority(b)-effectivePriority(a));
 }
 function questFilterLabel(count){
-  if(questFilter==="today")return `今日やる ${count}問`;
+  if(questFilter==="today"){
+    const list=plannedTasksForToday();
+    return `今日やる ${count}件・合計 ${planPoints_(list)}ポイント`;
+  }
   if(questFilter==="public")return `公開学力テストの復習 ${count}問`;
   if(["算数","国語","理科","社会"].includes(questFilter))return `${questFilter} ${count}問`;
   return `全 ${count}問`;
@@ -384,13 +479,16 @@ function render(){
   const completedIds=todayCompletedTaskIds();
   const doneCount=planned.filter(t=>completedIds.has(t.id)).length;
   const total=planned.length;
+  const donePoints=planned.filter(t=>completedIds.has(t.id)).reduce((sum,t)=>sum+workloadPoints_(t),0);
+  const totalPoints=planPoints_(planned);
   const planIds=new Set(plan.taskIds);
-  const backlog=dueAll.filter(t=>!planIds.has(t.id)).length;
-  document.querySelector("#todayDone").textContent=doneCount;
-  document.querySelector("#todayTotal").textContent=total;
-  document.querySelector("#todayProgress").style.width=`${total?(doneCount/total)*100:100}%`;
+  const backlogTasks=dueAll.filter(t=>!planIds.has(t.id));
+  const backlog=backlogTasks.length,backlogPoints=planPoints_(backlogTasks);
+  document.querySelector("#todayDone").textContent=donePoints;
+  document.querySelector("#todayTotal").textContent=totalPoints;
+  document.querySelector("#todayProgress").style.width=`${totalPoints?(donePoints/totalPoints)*100:100}%`;
   const overdue=overdueCount();
-  document.querySelector("#homeMessage").textContent=total===0?"今日のおすすめ復習はありません。":doneCount===total?"今日のおすすめクエスト、ぜんぶクリア！":backlog>0?`期限到来は ${dueAll.length} 問。今日は上位 ${total} 問に絞ります。`:"上から1問ずつでOK。";
+  document.querySelector("#homeMessage").textContent=total===0?"今日のおすすめクエストはありません。":doneCount===total?"今日のおすすめクエスト、ぜんぶクリア！":backlog>0?`今日は ${totalPoints}/${profile.maxPoints}ポイント。残りは優先順位に従って翌日以降へ回します。`:"毎日 → 宿題 → 復テ直し → 公開・模試直しの順で進めよう。";
   document.querySelector("#level").textContent=getLevel();
   document.querySelector("#xp").textContent=state.xp;
   document.querySelector("#streak").textContent=state.streak;
@@ -403,10 +501,10 @@ function render(){
   document.querySelector("#loadDayLabel").textContent=profile.day;
   document.querySelector("#loadLabel").textContent=profile.label;
   document.querySelector("#loadSchedule").textContent=profile.schedule;
-  document.querySelector("#loadTarget").textContent=`上限 ${profile.maxTasks}問`;
-  document.querySelector("#loadPlanCount").textContent=`${total}問`;
+  document.querySelector("#loadTarget").textContent=`上限 ${profile.maxPoints}pt`;
+  document.querySelector("#loadPlanCount").textContent=`${totalPoints}pt・${total}件`;
   document.querySelector("#loadMinutes").textContent=`${profile.minutes}分`;
-  document.querySelector("#loadBacklog").textContent=`${backlog}問`;
+  document.querySelector("#loadBacklog").textContent=backlog?`${backlogPoints}pt・${backlog}件`:"0pt";
   document.querySelector("#loadNote").textContent=profile.note;
   const mascot=document.querySelector("#dailyLoadMascot");if(mascot)mascot.src=profile.mascot;
   document.querySelector("#topTasks").innerHTML=planned.map(t=>taskCard(t,true)).join("")||`<div class="empty card">今日のおすすめ復習はありません。</div>`;
@@ -550,7 +648,10 @@ function applyResult(result){
   const t=state.tasks.find(x=>x.id===activeTaskId);if(!t)return;
   const xpMap={excellent:20,good:15,hint:8,wrong:3};
   const today=todayKey(),beforeStage=Number.isInteger(t.reviewStage)?t.reviewStage:-1;
-  if(result==="wrong"||result==="hint"){
+  if(normalizeStudyType_(t.studyType,t)==="毎日"){
+    // 毎日タスクは結果にかかわらず翌日に再登場し、定着終了にはしない。
+    t.reviewStage=0;t.nextReviewDate=addDaysISO(today,1);t.status="翌日確認";t.mastered=false;
+  }else if(result==="wrong"||result==="hint"){
     t.reviewStage=0;t.nextReviewDate=addDaysISO(today,1);t.status="翌日確認";t.mastered=false;
   }else{
     const next=nextReviewForSuccess(t);
@@ -574,12 +675,12 @@ addTaskBtn.onclick=()=>{const dateInput=document.querySelector("#taskStartDate")
 document.querySelector("#taskForm").addEventListener("submit",e=>{
   e.preventDefault();
   if(hasSyncConfig()){
-    alert("Google Sheets連携中は、問題の追加・教材名・レベルなどの編集はスプレッドシートの「問題台帳」で行ってください。\n入力後、このアプリの「スプレッドシートから同期」を押すと反映されます。");
+    alert("Google Sheets連携中は、問題の追加・教材名・レベルなどの編集はスプレッドシートの「学習・復習台帳」で行ってください。\n入力後、このアプリの「スプレッドシートから同期」を押すと反映されます。");
     return;
   }
   const fd=new FormData(e.currentTarget),newId=Math.max(0,...state.tasks.map(t=>Number(t.id)||0))+1;
   const startDate=fd.get("startDate")||todayKey();
-  state.tasks.push({id:newId,subject:fd.get("subject"),book:fd.get("book")||"",unit:fd.get("unit"),level:fd.get("level"),number:fd.get("number"),priority:fd.get("level")==="A"?70:fd.get("level")==="B"?50:30,status:"未着手",nextReviewDate:startDate,reviewStage:-1,mastered:false,lastResult:null,miss:"",lastStudyDate:null});
+  state.tasks.push({id:newId,subject:fd.get("subject"),book:fd.get("book")||"",unit:fd.get("unit"),level:fd.get("level"),number:fd.get("number"),priority:fd.get("level")==="A"?70:fd.get("level")==="B"?50:30,studyType:"宿題",workload:normalizeWorkload_(settingNumber_("default_workload",1),1),status:"未着手",nextReviewDate:startDate,reviewStage:-1,mastered:false,lastResult:null,miss:"",lastStudyDate:null});
   saveState();e.currentTarget.reset();document.querySelector("#taskDialog").close();render();showToast(`${formatJPDate(startDate)} に追加しました`);
 });
 
