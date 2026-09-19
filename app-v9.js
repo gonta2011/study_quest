@@ -536,13 +536,43 @@ function growthStats(){
   return{bunny,panda,bunnyLevel:levelOf(bunny),pandaLevel:levelOf(panda),bunnyPct:pctOf(bunny),pandaPct:pctOf(panda),bunnyNext:nextOf(bunny),pandaNext:nextOf(panda),friendshipPoints,friendshipLevel,friendshipPct,friendshipNext:120-(friendshipPoints%120||0),mastered,historyCount:hist.length};
 }
 function collectionItems(stats=growthStats()){
+  const xp=Math.max(0,Number(state.xp||0));
+  const streak=Math.max(0,Number(state.streak||0));
   return[
+    // 既存6種は条件を変えず、そのまま引き継ぐ。
     {id:"first",icon:"🌟",name:"はじめの星",detail:"最初の1問を記録",unlocked:stats.historyCount>=1},
-    {id:"ribbon",icon:"🎀",name:"3日リボン",detail:"3日れんぞく",unlocked:Number(state.streak||0)>=3},
+    {id:"ribbon",icon:"🎀",name:"3日リボン",detail:"3日れんぞく",unlocked:streak>=3},
     {id:"book",icon:"📚",name:"定着ブック",detail:"3問を定着",unlocked:stats.mastered>=3},
-    {id:"flower",icon:"🌷",name:"努力のお花",detail:"300 XP",unlocked:Number(state.xp||0)>=300},
-    {id:"crown",icon:"👑",name:"7日クラウン",detail:"7日れんぞく",unlocked:Number(state.streak||0)>=7},
-    {id:"moon",icon:"🌙",name:"ひみつの月",detail:"10問を定着",unlocked:stats.mastered>=10}
+    {id:"flower",icon:"🌷",name:"努力のお花",detail:"300 XP",unlocked:xp>=300},
+    {id:"crown",icon:"👑",name:"7日クラウン",detail:"7日れんぞく",unlocked:streak>=7},
+    {id:"moon",icon:"🌙",name:"ひみつの月",detail:"10問を定着",unlocked:stats.mastered>=10},
+
+    // ここから長期コレクション。宿題・復テ・公開模試が増えても、
+    // 数か月〜1年程度楽しめるよう後半ほど間隔を広げる。
+    {id:"clover",icon:"🍀",name:"しあわせクローバー",detail:"600 XP",unlocked:xp>=600},
+    {id:"pencil",icon:"✏️",name:"まほうのえんぴつ",detail:"学習を30回記録",unlocked:stats.historyCount>=30},
+    {id:"gem",icon:"💎",name:"きらきらジュエル",detail:"1,000 XP",unlocked:xp>=1000},
+    {id:"cake",icon:"🧁",name:"ごほうびカップケーキ",detail:"20問を定着",unlocked:stats.mastered>=20},
+    {id:"rainbow",icon:"🌈",name:"にじのかけら",detail:"1,500 XP",unlocked:xp>=1500},
+    {id:"teddy",icon:"🧸",name:"おうえんテディ",detail:"14日れんぞく",unlocked:streak>=14},
+    {id:"key",icon:"🗝️",name:"ひみつのカギ",detail:"2,000 XP",unlocked:xp>=2000},
+    {id:"shell",icon:"🐚",name:"ゆめいろシェル",detail:"学習を80回記録",unlocked:stats.historyCount>=80},
+    {id:"castle",icon:"🏰",name:"ちいさなおしろ",detail:"3,000 XP",unlocked:xp>=3000},
+    {id:"medal",icon:"🏅",name:"がんばりメダル",detail:"40問を定着",unlocked:stats.mastered>=40},
+    {id:"star2",icon:"💫",name:"ながれぼし",detail:"4,000 XP",unlocked:xp>=4000},
+    {id:"swan",icon:"🦢",name:"しろいスワン",detail:"30日れんぞく",unlocked:streak>=30},
+    {id:"crystal",icon:"🔮",name:"ゆめのクリスタル",detail:"5,500 XP",unlocked:xp>=5500},
+    {id:"album",icon:"📖",name:"ぼうけんアルバム",detail:"学習を180回記録",unlocked:stats.historyCount>=180},
+    {id:"tiara",icon:"👸",name:"きらめきティアラ",detail:"7,500 XP",unlocked:xp>=7500},
+    {id:"tree",icon:"🌳",name:"せいちょうの木",detail:"70問を定着",unlocked:stats.mastered>=70},
+    {id:"unicorn",icon:"🦄",name:"ゆめいろユニコーン",detail:"10,000 XP",unlocked:xp>=10000},
+    {id:"planet",icon:"🪐",name:"ぼうけんプラネット",detail:"学習を300回記録",unlocked:stats.historyCount>=300},
+    {id:"diamond",icon:"💠",name:"でんせつのジュエル",detail:"14,000 XP",unlocked:xp>=14000},
+    {id:"garden",icon:"🌸",name:"ひみつの花園",detail:"120問を定着",unlocked:stats.mastered>=120},
+    {id:"comet",icon:"☄️",name:"ミラクルコメット",detail:"18,000 XP",unlocked:xp>=18000},
+    {id:"royal",icon:"🏆",name:"ロイヤルトロフィー",detail:"学習を500回記録",unlocked:stats.historyCount>=500},
+    {id:"aurora",icon:"✨",name:"オーロラのかけら",detail:"24,000 XP",unlocked:xp>=24000},
+    {id:"treasure",icon:"🎁",name:"伝説の宝箱",detail:"30,000 XP",unlocked:xp>=30000}
   ];
 }
 function maybeCelebrateDailyPlan(){
@@ -596,6 +626,18 @@ function renderGrowth(){
   if(badgeMaster)badgeMaster.classList.toggle("unlocked",aExcellent);
 }
 function renderParent(){
+  // 曜日別の学習量はHTMLへ固定せず、設定シートのポイント上限をそのまま表示する。
+  const weeklyPointDisplays={
+    weeklyPointsMon:["study_points_mon",8,30],weeklyPointsTue:["study_points_tue",3,15],
+    weeklyPointsWed:["study_points_wed",12,45],weeklyPointsThu:["study_points_thu",3,15],
+    weeklyPointsFri:["study_points_fri",2,10],weeklyPointsSat:["study_points_sat",9,35],
+    weeklyPointsSun:["study_points_sun",6,30],weeklyPointsSecondSun:["study_points_second_sun",2,10]
+  };
+  Object.entries(weeklyPointDisplays).forEach(([id,[key,fallback,minutes]])=>{
+    const el=document.querySelector(`#${id}`);
+    if(el)el.textContent=`${Math.max(1,settingNumber_(key,fallback))}pt・${minutes}分`;
+  });
+
   const redo=state.tasks.filter(t=>!t.mastered&&["直し待ち","理解不十分","翌日確認"].includes(t.status)).length;
   const aPending=state.tasks.filter(t=>t.level==="A"&&!t.mastered).length,mastered=state.tasks.filter(t=>t.mastered).length;
   document.querySelector("#metricRedo").textContent=redo;document.querySelector("#metricA").textContent=aPending;document.querySelector("#metricToday").textContent=plannedTasksForToday().length;document.querySelector("#metricOverdue").textContent=overdueCount();document.querySelector("#metricMastered").textContent=mastered;

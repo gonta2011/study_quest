@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="icons/studyquest-icon-v2-180.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/studyquest-icon-v2-192.png" />
   <link rel="manifest" href="manifest.webmanifest?v=5" />
-  <link rel="stylesheet" href="styles-v9.css?v=16" />
+  <link rel="stylesheet" href="styles-v9.css?v=17" />
   <title>Study Quest</title>
 </head>
 <body>
@@ -170,7 +170,7 @@
         <div class="card collection-card">
           <div class="gallery-head">
             <h3>あつめた ごほうび</h3>
-            <span class="pill small" id="collectionCount">0/6</span>
+            <span class="pill small" id="collectionCount">0/30</span>
           </div>
           <div id="collectionGrid" class="collection-grid"></div>
         </div>
@@ -215,18 +215,19 @@
 
 
         <div class="card parent-card weekly-load-card">
-          <h3>曜日ごとの復習量</h3>
-          <p class="mini-copy">通塾や習い事が重い日は、期限が来た問題を全部出さず、優先度の高い問題だけを「今日のおすすめ」にします。未選択の問題は消えず、翌日以降も優先度を保ちます。</p>
+          <h3>曜日ごとの学習量（負荷ポイント）</h3>
+          <p class="mini-copy">「問題数」ではなく負荷ポイントで上限を管理します。毎日 → 宿題 → 復テ直し → 公開・模試直しの順に、上限ポイントへ収まるものだけを「今日のおすすめ」にします。設定シートの値を変更すると、この表示も自動で変わります。</p>
           <div class="weekly-load-table">
-            <div><strong>月</strong><span>5問・30分</span><small>ピアノ</small></div>
-            <div><strong>火</strong><span>2問・15分</span><small>国語＋算数2nd</small></div>
-            <div><strong>水</strong><span>6問・40分</span><small>しっかり復習</small></div>
-            <div><strong>木</strong><span>2問・15分</span><small>理科＋社会</small></div>
-            <div><strong>金</strong><span>1問・10分</span><small>最レ算数</small></div>
-            <div><strong>土</strong><span>3問・20分</span><small>算数1st</small></div>
-            <div><strong>日</strong><span>1〜4問</span><small>週により自動調整</small></div>
+            <div><strong>月</strong><span id="weeklyPointsMon">8pt・30分</span><small>ピアノ</small></div>
+            <div><strong>火</strong><span id="weeklyPointsTue">3pt・15分</span><small>国語＋算数2nd</small></div>
+            <div><strong>水</strong><span id="weeklyPointsWed">12pt・45分</span><small>回収日</small></div>
+            <div><strong>木</strong><span id="weeklyPointsThu">3pt・15分</span><small>理科＋社会</small></div>
+            <div><strong>金</strong><span id="weeklyPointsFri">2pt・10分</span><small>最レ算数</small></div>
+            <div><strong>土</strong><span id="weeklyPointsSat">9pt・35分</span><small>算数1st・回収日</small></div>
+            <div><strong>日</strong><span id="weeklyPointsSun">6pt・30分</span><small>通常の日曜</small></div>
+            <div><strong>第2日</strong><span id="weeklyPointsSecondSun">2pt・10分</span><small>公開＋バド</small></div>
           </div>
-          <p class="mini-copy sunday-rule">日曜：第1・3週＝最レ国語で2問／第2週＝公開で1問／第4・5週＝4問を目安にします。</p>
+          <p class="mini-copy sunday-rule">第2日曜だけは公開学力テストの日として別枠の上限を使います。第1・3・4・5日曜は通常の日曜上限です。</p>
         </div>
 
 
@@ -359,6 +360,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status"></div>
-  <script src="app-v9.js?v=16"></script>
+  <script src="app-v9.js?v=17"></script>
 </body>
 </html>
